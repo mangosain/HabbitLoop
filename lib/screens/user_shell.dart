@@ -492,12 +492,9 @@ class _TaskListPageState extends State<TaskListPage> {
   Widget build(BuildContext context) => HabitLiveBuilder(
     builder: (tasks, entries) {
       final day = DateTime.now();
-      final todayKey = dayKey(day);
-      final statuses = <String, String>{};
-      for (final entry in entries) {
-        if (entry.date == todayKey)
-          statuses.putIfAbsent(entry.taskId, () => entry.status);
-      }
+      final statuses = {
+        for (final entry in entries) (entry.taskId, entry.date): entry.status,
+      };
       final active = tasks.where((t) {
         if (t.isDeleted) return false;
         final s = t.on(day) ?? t.latest;
@@ -583,8 +580,11 @@ class _TaskListPageState extends State<TaskListPage> {
                   final task = active[index];
                   final current = task.on(day);
                   final s = current ?? task.latest;
-                  final due = current?.occursOn(day) ?? false;
-                  final status = statuses[task.id] ?? 'pending';
+                  final completionDate = task.completionDate(day);
+                  final status = completionDate == null
+                      ? 'pending'
+                      : statuses[(task.id, dayKey(completionDate))] ??
+                            'pending';
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: SoftCard(
@@ -636,9 +636,9 @@ class _TaskListPageState extends State<TaskListPage> {
                               ],
                             ),
                           ),
-                          if (due && !task.isArchived && !widget.adminMode)
+                          if (completionDate != null && !widget.adminMode)
                             IconButton(
-                              tooltip: 'Change today’s status',
+                              tooltip: 'Change completion status',
                               icon: MotionSwitcher(
                                 child: Icon(
                                   status == 'completed'
@@ -655,7 +655,7 @@ class _TaskListPageState extends State<TaskListPage> {
                                   await HabitBackend.instance.mark(
                                     targetUid: widget.uid,
                                     task: task,
-                                    date: day,
+                                    date: completionDate,
                                     previous: status,
                                     status: status == 'completed'
                                         ? 'pending'

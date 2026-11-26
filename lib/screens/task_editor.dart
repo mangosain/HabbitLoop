@@ -145,6 +145,11 @@ class _TaskEditorState extends State<TaskEditor> {
         paused: paused,
         archived: archived,
       );
+      final movedToToday =
+          editing &&
+          kind == 'oneTime' &&
+          widget.task!.latest.oneTimeDate != oneTimeDate &&
+          oneTimeDate == dayKey(DateTime.now());
       await HabitBackend.instance.saveTask(
         targetUid: widget.uid,
         taskId: widget.task?.id,
@@ -157,7 +162,7 @@ class _TaskEditorState extends State<TaskEditor> {
         editing
             ? (archived
                   ? 'Task archived.'
-                  : kind == 'oneTime' && oneTimeDate == dayKey(DateTime.now())
+                  : movedToToday
                   ? 'Task moved to today.'
                   : 'Changes saved for future occurrences.')
             : 'Habit created!',
@@ -254,6 +259,15 @@ class _TaskEditorState extends State<TaskEditor> {
         editing ? 'Edit Task' : 'Add Task',
         style: const TextStyle(fontWeight: FontWeight.w900),
       ),
+      actions: [
+        if (editing)
+          IconButton(
+            onPressed: busy || savingIcon ? null : deleteTask,
+            tooltip: 'Delete task',
+            color: Theme.of(context).colorScheme.error,
+            icon: const Icon(Icons.delete_outline_rounded),
+          ),
+      ],
     ),
     body: Form(
       key: formKey,

@@ -172,6 +172,25 @@ class HabitTask {
   }
 
   bool scheduled(DateTime day) => occurrenceOn(day) != null;
+
+  /// Recurring tasks are checked off for today. One-time tasks can also be
+  /// checked off after their scheduled date, against the original occurrence.
+  DateTime? completionDate(DateTime now) {
+    if (isDeleted || isArchived) return null;
+    final today = dateOnly(now);
+    if (scheduled(today)) return today;
+    final schedule = on(today);
+    final date = schedule?.oneTimeDate;
+    if (schedule?.kind != 'oneTime' ||
+        schedule!.paused ||
+        date == null ||
+        date.compareTo(dayKey(today)) >= 0) {
+      return null;
+    }
+    final originalDay = fromDay(date);
+    return scheduled(originalDay) ? originalDay : null;
+  }
+
   HabitSchedule get latest => versions.last;
   bool get isArchived => latest.archived;
 

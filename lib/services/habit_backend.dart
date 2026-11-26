@@ -100,28 +100,22 @@ class HabitBackend {
         : utcEffective;
     final raw = definition.toDefinition();
     final selectedDate = definition.oneTimeDate;
-    final moveToToday =
-        taskId != null && definition.kind == 'oneTime' && selectedDate == today;
-    if (definition.kind == 'oneTime' &&
-        (selectedDate == null ||
-            (!moveToToday && selectedDate.compareTo(effective) < 0))) {
-      throw StateError('Choose a one-time date on or after $effective.');
+    if (taskId == null &&
+        (raw['startDate'] as String).compareTo(effective) < 0) {
+      raw['startDate'] = effective;
     }
-    if ((taskId == null &&
-            (raw['startDate'] as String).compareTo(effective) < 0) ||
-        moveToToday) {
-      raw['startDate'] = moveToToday ? today : effective;
-    }
-    final version = <String, dynamic>{
-      ...raw,
-      'effectiveFrom': moveToToday ? today : effective,
-    };
     final col = db.collection('users').doc(targetUid).collection('tasks');
     final ref = taskId == null ? col.doc() : col.doc(taskId);
     await db.runTransaction<void>((transaction) async {
       if (taskId == null) {
+        if (definition.kind == 'oneTime' &&
+            (selectedDate == null || selectedDate.compareTo(effective) < 0)) {
+          throw StateError('Choose a one-time date on or after $effective.');
+        }
         transaction.set(ref, {
-          'versions': [version],
+          'versions': [
+            {...raw, 'effectiveFrom': effective},
+          ],
           if (iconId != null) 'iconId': iconId,
           'ownerUid': targetUid,
           'createdBy': uid,
@@ -142,16 +136,28 @@ class HabitBackend {
             'Task has no schedule or has reached its version limit.',
           );
         }
-        if (moveToToday) {
-          final previous = HabitSchedule.fromMap(
-            Map<String, dynamic>.from(existing.last as Map),
-          );
-          if (!canMoveOneTimeTaskToToday(previous, definition, now)) {
+        final previous = HabitSchedule.fromMap(
+          Map<String, dynamic>.from(existing.last as Map),
+        );
+        final dateChanged =
+            previous.kind != definition.kind ||
+            previous.oneTimeDate != selectedDate;
+        final moveToToday =
+            dateChanged && canMoveOneTimeTaskToToday(previous, definition, now);
+        if (definition.kind == 'oneTime' &&
+            (selectedDate == null ||
+                (dateChanged &&
+                    !moveToToday &&
+                    selectedDate.compareTo(effective) < 0))) {
+          if (selectedDate == today) {
             throw StateError(
               'Only a missed one-time task can move to today. '
               'For other schedule changes, choose $effective or later.',
             );
           }
+          throw StateError('Choose a one-time date on or after $effective.');
+        }
+        if (moveToToday) {
           final occurrence = await transaction.get(
             ref.parent.parent!
                 .collection('occurrences')
@@ -162,7 +168,14 @@ class HabitBackend {
           }
         }
         transaction.update(ref, {
-          'versions': [...existing, version],
+          'versions': [
+            ...existing,
+            {
+              ...raw,
+              if (moveToToday) 'startDate': today,
+              'effectiveFrom': moveToToday ? today : effective,
+            },
+          ],
           'updatedBy': uid,
           'updatedAt': FieldValue.serverTimestamp(),
         });

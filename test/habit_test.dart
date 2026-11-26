@@ -71,6 +71,22 @@ void main() {
     expect(task.scheduled(DateTime(2026, 11, 23)), isTrue);
     expect(task.scheduled(DateTime(2026, 11, 25)), isFalse);
   });
+  test('overdue one-time tasks use their original completion date', () {
+    final task = HabitTask(
+      id: 'one-time',
+      versions: [schedule(oneTimeDate: '2026-11-25')],
+    );
+    expect(task.completionDate(DateTime(2026, 11, 24)), isNull);
+    expect(
+      task.completionDate(DateTime(2026, 11, 25, 12)),
+      DateTime(2026, 11, 25),
+    );
+    expect(task.completionDate(DateTime(2026, 11, 26)), DateTime(2026, 11, 25));
+
+    final recurring = HabitTask(id: 'recurring', versions: [schedule()]);
+    expect(recurring.completionDate(DateTime(2026, 11, 26)), isNull);
+  });
+
   test('deletion keeps past and recorded same-day progress only', () {
     final task = HabitTask(
       id: 'a',
