@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+    function active() {
+      return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && profile(request.auth.uid).data.disabled == false;
+    }
+    function isAdmin() { return active() && request.auth.token.get('admin', false) == true
+      && profile(request.auth.uid).data.role == 'admin'; }
+    function self(uid) { return active() && request.auth.uid == uid
+      && request.auth.token.get('admin', false) == false
+      && profile(uid).data.role == 'user'; }
+    function canManageTask(uid) { return self(uid) || isAdmin(); }
+    function validStatus(s) { return s in ['completed', 'skipped', 'pending']; }
+    function two(n) { return n < 10 ? '0' + string(n) : string(n); }
+    function utcDay(t) { return string(t.year()) + '-' + two(t.month()) + '-' + two(t.day()); }
+    function dateString(s) {
+      return s is string && s.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+    function validVersion(v) {
+      return v is map
+        && v.keys().hasAll(['effectiveFrom', 'name', 'description', 'category',
+          'kind', 'startDate', 'endDate', 'oneTimeDate', 'weekdays',
+          'timeMinutes', 'remindersEnabled', 'leadMinutes', 'repeatMinutes',
+          'paused', 'archived'])
+        && v.keys().hasOnly(['effectiveFrom', 'name', 'description', 'category',
+          'kind', 'startDate', 'endDate', 'oneTimeDate', 'weekdays',
+          'timeMinutes', 'remindersEnabled', 'leadMinutes', 'repeatMinutes',
+          'paused', 'archived'])
+        && dateString(v.effectiveFrom)
+        && v.name is string && v.name.size() > 0 && v.name.size() <= 100
+        && v.description is string && v.description.size() <= 500
+        && v.category in ['Personal','Health','Study','Work','Mindfulness']
+        && v.kind in ['oneTime', 'recurring']
+        && dateString(v.startDate)
+        && (v.endDate == null || dateString(v.endDate))
+        && (v.oneTimeDate == null || dateString(v.oneTimeDate))
+        && (v.kind != 'oneTime' || dateString(v.oneTimeDate))
+        && v.weekdays is list && v.weekdays.size() <= 7
+        && v.weekdays.hasOnly([1,2,3,4,5,6,7])
+        && (v.kind != 'recurring' || v.weekdays.size() > 0)
+        && (v.timeMinutes == null || (v.timeMinutes is int
+          && v.timeMinutes >= 0 && v.timeMinutes < 1440))
+        && v.remindersEnabled is bool
+        && v.leadMinutes is int && v.leadMinutes >= 0 && v.leadMinutes <= 1440
+        && v.repeatMinutes is int && v.repeatMinutes >= 1 && v.repeatMinutes <= 1440
+        && v.paused is bool && v.archived is bool;
+    }
+    function validTaskIcon(d) {
+      return d.get('iconId', null) == null
+        || d.iconId in ['fitness','walk','water','medicine','food','study','work',
+          'mindfulness','sleep','hygiene','home','money','pet','music','sun']
+        || (d.iconId is string && d.iconId.matches('^material_[a-z0-9_]{1,72}$'));
+    }
+
+    function validTaskIconUpdate(uid) {
+      let d = request.resource.data;
+      let changed = d.diff(resource.data).affectedKeys();
+      return canManageTask(uid)
+        && profile(uid).data.disabled == false
+        && changed.hasOnly(['iconId','updatedBy','updatedAt'])
+        && changed.hasAny(['iconId'])
+        && validTaskIcon(d)
+        && d.updatedBy == request.auth.uid && d.updatedAt == request.time;
+    }
+
+    function validTaskCreate(uid) {
+      let d = request.resource.data;
+      return canManageTask(uid)
+        && profile(uid).data.disabled == false
+        && d.keys().hasOnly(['versions','ownerUid','createdBy','updatedBy',
+           'createdAt','updatedAt','iconId'])
+        && d.keys().hasAll(['versions','ownerUid','createdBy','updatedBy',
+           'createdAt','updatedAt'])
+        && validTaskIcon(d)
+        && d.ownerUid == uid && d.createdBy == request.auth.uid
+        && d.updatedBy == request.auth.uid
+        && d.createdAt == request.time && d.updatedAt == request.time
+        && d.versions is list && d.versions.size() == 1
+        && validVersion(d.versions[0])
+        && d.versions[0].effectiveFrom >= utcDay(request.time);
+    }
+    function canMovePendingOneTimeToToday(uid, taskId, previous, next) {
+      let today = utcDay(request.time);
+      let entryId = taskId + '_' + previous.oneTimeDate;
+      let entry = /databases/$(database)/documents/users/$(uid)/occurrences/$(entryId);
+      return self(uid)
+        && previous.kind == 'oneTime' && dateString(previous.oneTimeDate)
+        && previous.oneTimeDate < today && previous.effectiveFrom <= today
+        && next.kind == 'oneTime' && next.effectiveFrom == today
+        && next.oneTimeDate == today && next.startDate == today
+        && next.paused == false && next.archived == false
+        && (!exists(entry) || get(entry).data.status == 'pending');
+    }
+    function validTaskUpdate(uid, taskId) {
+      let d = request.resource.data;
+      let old = resource.data.versions;
+      let next = d.versions;
+      return canManageTask(uid)
+        && profile(uid).data.disabled == false
+        && d.diff(resource.data).affectedKeys().hasOnly(['versions','updatedBy','updatedAt'])
+        && d.updatedBy == request.auth.uid && d.updatedAt == request.time
+        && old is list && next is list && next.size() == old.size() + 1
+        && next.size() <= 350
+        && next == old.concat([next[old.size()]])
+        && validVersion(next[old.size()])
+        && (next[old.size()].effectiveFrom > utcDay(request.time)
+          || (old.size() > 0
+            && canMovePendingOneTimeToToday(uid, taskId, old[old.size() - 1], next[old.size()])));
+    }
+
+    match /users/{uid} {
+      allow get: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow list: if isAdmin();
+      // The local Admin SDK script owns user provisioning and identity updates.
+      allow create, delete: if false;
+      allow update: if isAdmin()
+        && uid != request.auth.uid
+        && resource.data.role == 'user'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['disabled'])
+        && request.resource.data.disabled is bool;
+
+      match /tasks/{taskId} {
+        allow read: if self(uid) || isAdmin();
+        allow create: if validTaskCreate(uid);
+        allow update: if validTaskUpdate(uid, taskId) || validTaskIconUpdate(uid);
+        allow delete: if false;
+      }
+      match /occurrences/{entryId} {
+        allow read: if self(uid) || isAdmin();
+        allow create: if self(uid)
+          && exists(/databases/$(database)/documents/users/$(uid)/tasks/$(request.resource.data.taskId))
+          && entryId == request.resource.data.taskId + '_' + request.resource.data.date
+          && request.resource.data.keys().hasOnly(['taskId','date','status','changedAt','changedBy'])
+          && request.resource.data.keys().hasAll(['taskId','date','status','changedAt','changedBy'])
+          && request.resource.data.taskId is string
+          && dateString(request.resource.data.date)
+          && validStatus(request.resource.data.status)
+          && request.resource.data.changedBy == uid
+          && request.resource.data.changedAt == request.time;
+        allow update: if self(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','changedAt','changedBy'])
+          && request.resource.data.taskId == resource.data.taskId
+          && request.resource.data.date == resource.data.date
+          && validStatus(request.resource.data.status)
+          && request.resource.data.changedBy == uid
+          && request.resource.data.changedAt == request.time;
+        allow delete: if false;
+      }
+      match /settings/{doc} {
+        allow read: if self(uid) || isAdmin();
+        allow create, update: if self(uid)
+          && doc == 'preferences'
+          && request.resource.data.keys().hasOnly([
+            'darkMode','quietHoursEnabled','quietStart','quietEnd',
+            'defaultLeadMinutes','defaultRepeatMinutes','notificationsEnabled','timezone'])
+          && request.resource.data.defaultLeadMinutes is int
+          && request.resource.data.defaultLeadMinutes >= 0
+          && request.resource.data.defaultLeadMinutes <= 1440
+          && request.resource.data.defaultRepeatMinutes is int
+          && request.resource.data.defaultRepeatMinutes >= 1
+          && request.resource.data.defaultRepeatMinutes <= 1440;
+        allow delete: if false;
+      }
+      match /reminderStates/{taskId} {
+        allow read: if self(uid) || isAdmin();
+        allow create: if self(uid)
+          && request.resource.data.keys().hasOnly(['snoozeUntil'])
+          && request.resource.data.snoozeUntil is timestamp;
+        allow update: if self(uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['snoozeUntil'])
+          && request.resource.data.snoozeUntil is timestamp;
+        allow delete: if false;
+      }
+      match /activity/{eventId} {
+        allow read: if self(uid) || isAdmin();
+        allow create: if self(uid)
+          && request.resource.data.keys().hasOnly(['taskId','date','from','to','by','at'])
+          && request.resource.data.keys().hasAll(['taskId','date','from','to','by','at'])
+          && request.resource.data.taskId is string
+          && dateString(request.resource.data.date)
+          && request.resource.data.by == uid
+          && request.resource.data.at == request.time
+          && validStatus(request.resource.data.to);
+        allow update, delete: if false;
+      }
+      match /{other=**} { allow read, write: if false; }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

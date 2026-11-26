@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+ <defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F9FFF5"/><stop offset="1" stop-color="#E8F8ED"/></linearGradient>
+  <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#79C777"/><stop offset="1" stop-color="#32A85D"/></linearGradient>
+  <filter id="shadow"><feGaussianBlur stdDeviation="14"/></filter>
+ </defs>
+ <rect width="1024" height="1024" fill="url(#bg)"/>
+ <circle cx="510" cy="554" r="311" fill="#D8EEDC" opacity=".45"/>
+ <circle cx="510" cy="554" r="255" fill="none" stroke="#4BAC6A" stroke-width="85" stroke-linecap="round" stroke-dasharray="1300 450" transform="rotate(-87 510 554)"/>
+ <path d="M355 545 L465 653 L683 425" fill="none" stroke="#2E9350" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M534 324 C541 193 657 145 728 179 C727 283 657 341 534 324 Z" fill="url(#leaf)"/>
+ <path d="M527 326 C447 213 348 206 296 257 C327 359 426 385 527 326 Z" fill="#9AD78D"/>
+ <path d="M533 347 L533 250 M533 322 L661 218 M523 327 L353 269" stroke="#278D4E" stroke-width="18" stroke-linecap="round" fill="none" opacity=".65"/>
+ <circle cx="759" cy="296" r="18" fill="#FFD47F"/>
+ <circle cx="280" cy="673" r="14" fill="#FFB5AE"/>
+</svg>
