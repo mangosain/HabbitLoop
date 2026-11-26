@@ -15,6 +15,22 @@ service cloud.firestore {
       && request.auth.token.get('admin', false) == false
       && profile(uid).data.role == 'user'; }
     function canManageTask(uid) { return self(uid) || isAdmin(); }
+    function activeTask(uid, taskId) {
+      return getAfter(/databases/$(database)/documents/users/$(uid)/tasks/$(taskId))
+        .data.get('deletedOn', null) == null;
+    }
+    function validTaskDeletion(uid) {
+      let d = request.resource.data;
+      return canManageTask(uid)
+        && resource.data.ownerUid == uid
+        && d.diff(resource.data).affectedKeys().hasOnly([
+          'deletedOn','deletedAt','updatedBy','updatedAt'])
+        && dateString(d.deletedOn)
+        && d.deletedOn >= utcDay(request.time - duration.value(1, 'd'))
+        && d.deletedOn <= utcDay(request.time + duration.value(1, 'd'))
+        && d.deletedAt == request.time
+        && d.updatedAt == request.time && d.updatedBy == request.auth.uid;
+    }
     function validStatus(s) { return s in ['completed', 'skipped', 'pending']; }
     function two(n) { return n < 10 ? '0' + string(n) : string(n); }
     function utcDay(t) { return string(t.year()) + '-' + two(t.month()) + '-' + two(t.day()); }
@@ -127,13 +143,15 @@ service cloud.firestore {
       match /tasks/{taskId} {
         allow read: if self(uid) || isAdmin();
         allow create: if validTaskCreate(uid);
-        allow update: if validTaskUpdate(uid, taskId) || validTaskIconUpdate(uid);
+        allow update: if resource.data.get('deletedOn', null) == null
+          && (validTaskUpdate(uid, taskId) || validTaskIconUpdate(uid)
+            || validTaskDeletion(uid));
         allow delete: if false;
       }
       match /occurrences/{entryId} {
         allow read: if self(uid) || isAdmin();
         allow create: if self(uid)
-          && exists(/databases/$(database)/documents/users/$(uid)/tasks/$(request.resource.data.taskId))
+          && activeTask(uid, request.resource.data.taskId)
           && entryId == request.resource.data.taskId + '_' + request.resource.data.date
           && request.resource.data.keys().hasOnly(['taskId','date','status','changedAt','changedBy'])
           && request.resource.data.keys().hasAll(['taskId','date','status','changedAt','changedBy'])
@@ -143,6 +161,7 @@ service cloud.firestore {
           && request.resource.data.changedBy == uid
           && request.resource.data.changedAt == request.time;
         allow update: if self(uid)
+          && activeTask(uid, resource.data.taskId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','changedAt','changedBy'])
           && request.resource.data.taskId == resource.data.taskId
           && request.resource.data.date == resource.data.date
@@ -169,9 +188,11 @@ service cloud.firestore {
       match /reminderStates/{taskId} {
         allow read: if self(uid) || isAdmin();
         allow create: if self(uid)
+          && activeTask(uid, taskId)
           && request.resource.data.keys().hasOnly(['snoozeUntil'])
           && request.resource.data.snoozeUntil is timestamp;
         allow update: if self(uid)
+          && activeTask(uid, taskId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['snoozeUntil'])
           && request.resource.data.snoozeUntil is timestamp;
         allow delete: if false;
@@ -179,6 +200,7 @@ service cloud.firestore {
       match /activity/{eventId} {
         allow read: if self(uid) || isAdmin();
         allow create: if self(uid)
+          && activeTask(uid, request.resource.data.taskId)
           && request.resource.data.keys().hasOnly(['taskId','date','from','to','by','at'])
           && request.resource.data.keys().hasAll(['taskId','date','from','to','by','at'])
           && request.resource.data.taskId is string

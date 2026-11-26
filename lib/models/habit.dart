@@ -124,7 +124,13 @@ class HabitTask {
   final String id;
   final List<HabitSchedule> versions;
   final String? iconId;
-  const HabitTask({required this.id, required this.versions, this.iconId});
+  final String? deletedOn;
+  const HabitTask({
+    required this.id,
+    required this.versions,
+    this.iconId,
+    this.deletedOn,
+  });
   factory HabitTask.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
     final maps = (d.data()?['versions'] as List<dynamic>? ?? [])
         .cast<dynamic>();
@@ -135,6 +141,7 @@ class HabitTask {
       id: d.id,
       versions: versions,
       iconId: d.data()?['iconId'] as String?,
+      deletedOn: d.data()?['deletedOn'] as String?,
     );
   }
   HabitSchedule? on(DateTime day) => _onDate(dayKey(day));
@@ -147,8 +154,17 @@ class HabitTask {
     return null;
   }
 
-  HabitSchedule? occurrenceOn(DateTime day, {String? dateKey}) {
+  HabitSchedule? occurrenceOn(
+    DateTime day, {
+    String? dateKey,
+    bool recorded = false,
+  }) {
     final key = dateKey ?? dayKey(day);
+    final cutoff = deletedOn;
+    if (cutoff != null &&
+        (key.compareTo(cutoff) > 0 || (key == cutoff && !recorded))) {
+      return null;
+    }
     final version = _onDate(key);
     return version != null && version._occursOn(key, day.weekday)
         ? version
@@ -159,8 +175,10 @@ class HabitTask {
   HabitSchedule get latest => versions.last;
   bool get isArchived => latest.archived;
 
+  bool get isDeleted => deletedOn != null;
+
   HabitSchedule? reminderScheduleAt(DateTime now) {
-    if (isArchived) return null;
+    if (isDeleted || isArchived) return null;
     final schedule = on(now);
     if (schedule == null || schedule.paused || schedule.archived) return null;
     return schedule;
@@ -203,7 +221,14 @@ DayProgress progressFor(
   };
   var total = 0, completed = 0, skipped = 0;
   for (final task in tasks) {
-    if (task.occurrenceOn(date, dateKey: key) == null) continue;
+    if (task.occurrenceOn(
+          date,
+          dateKey: key,
+          recorded: statusById.containsKey(task.id),
+        ) ==
+        null) {
+      continue;
+    }
     total++;
     switch (statusById[task.id]) {
       case 'completed':

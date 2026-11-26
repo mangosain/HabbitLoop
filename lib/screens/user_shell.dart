@@ -158,7 +158,7 @@ class UserDashboard extends StatelessWidget {
           .toList();
       final p = progressFor(today, tasks, todayEntries);
       final scheduled = tasks
-          .where((t) => !t.isArchived && t.scheduled(today))
+          .where((t) => !t.isDeleted && !t.isArchived && t.scheduled(today))
           .toList();
       final streak = currentStreak(tasks, entries);
       return ListView(
@@ -499,6 +499,7 @@ class _TaskListPageState extends State<TaskListPage> {
           statuses.putIfAbsent(entry.taskId, () => entry.status);
       }
       final active = tasks.where((t) {
+        if (t.isDeleted) return false;
         final s = t.on(day) ?? t.latest;
         if (t.isArchived) return filter == 'Archived';
         if (filter == 'Archived') return false;

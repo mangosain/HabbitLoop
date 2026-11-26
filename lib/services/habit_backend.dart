@@ -131,7 +131,9 @@ class HabitBackend {
         });
       } else {
         final snap = await transaction.get(ref);
-        if (!snap.exists) throw StateError('Task not found.');
+        if (!snap.exists || snap.data()?['deletedOn'] != null) {
+          throw StateError('Task not found.');
+        }
         final existing = List<dynamic>.from(
           snap.data()?['versions'] as List? ?? [],
         );
@@ -183,6 +185,25 @@ class HabitBackend {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+  Future<void> deleteTask(String targetUid, String taskId) async {
+    final ref = db
+        .collection('users')
+        .doc(targetUid)
+        .collection('tasks')
+        .doc(taskId);
+    await db.runTransaction<void>((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw StateError('Task not found.');
+      if (snapshot.data()?['deletedOn'] != null) return;
+      transaction.update(ref, {
+        'deletedOn': dayKey(DateTime.now()),
+        'deletedAt': FieldValue.serverTimestamp(),
+        'updatedBy': uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Future<void> mark({
     required String targetUid,
     required HabitTask task,
@@ -192,7 +213,7 @@ class HabitBackend {
   }) async {
     if (targetUid != uid)
       throw StateError('Admins cannot edit task completion records.');
-    if (!task.scheduled(date))
+    if (task.isDeleted || !task.scheduled(date))
       throw StateError('This task is not scheduled for that day.');
     final key = dayKey(date);
     final userDoc = db.collection('users').doc(uid);

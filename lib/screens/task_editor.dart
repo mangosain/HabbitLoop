@@ -170,6 +170,42 @@ class _TaskEditorState extends State<TaskEditor> {
     }
   }
 
+  Future<void> deleteTask() async {
+    final task = widget.task!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete task?'),
+        content: Text(
+          '“${task.latest.name}” will be removed from your tasks and reminders. '
+          'Past records will stay in your history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete task'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => busy = true);
+    try {
+      await HabitBackend.instance.deleteTask(widget.uid, task.id);
+      if (!mounted) return;
+      toast(context, 'Task deleted.');
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) toast(context, friendlyError(e));
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> chooseIcon() async {
     final choice = await Navigator.of(context).push<String>(
       sharedRoute<String>(
@@ -569,6 +605,17 @@ class _TaskEditorState extends State<TaskEditor> {
             busy: busy,
             onPressed: save,
           ),
+          if (editing) ...[
+            const SizedBox(height: 12),
+            TextButton.icon(
+              onPressed: busy || savingIcon ? null : deleteTask,
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Delete task'),
+            ),
+          ],
         ],
       ),
     ),

@@ -396,7 +396,19 @@ class _DaySheetContent extends StatelessWidget {
       initialData: initialEntries,
       builder: (context, snapshot) {
         final entries = snapshot.data ?? initialEntries;
-        final current = tasks.where((t) => t.scheduled(date)).toList();
+        final key = dayKey(date);
+        final recorded = {
+          for (final entry in entries)
+            if (entry.date == key) entry.taskId,
+        };
+        final current = tasks.where((task) {
+          return task.occurrenceOn(
+                date,
+                dateKey: key,
+                recorded: recorded.contains(task.id),
+              ) !=
+              null;
+        }).toList();
         final p = progressFor(date, tasks, entries);
         return Column(
           children: [
@@ -489,7 +501,7 @@ class _DaySheetContent extends StatelessWidget {
                               color: AppPalette.muted,
                             ),
                           ),
-                          trailing: editable
+                          trailing: editable && !task.isDeleted
                               ? PopupMenuButton<String>(
                                   tooltip: 'Change task status',
                                   onSelected: (value) async {

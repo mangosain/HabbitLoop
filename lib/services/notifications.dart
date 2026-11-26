@@ -96,7 +96,7 @@ class NotificationService with WidgetsBindingObserver {
       HabitBackend.instance.tasks(uid).listen((tasks) {
         final archived = {
           for (final task in tasks)
-            if (task.isArchived) task.id,
+            if (task.isArchived || task.isDeleted) task.id,
         };
         final newlyArchived = archived.difference(_archivedTaskIds).isNotEmpty;
         _tasks = tasks;

@@ -71,6 +71,28 @@ void main() {
     expect(task.scheduled(DateTime(2026, 11, 23)), isTrue);
     expect(task.scheduled(DateTime(2026, 11, 25)), isFalse);
   });
+  test('deletion keeps past and recorded same-day progress only', () {
+    final task = HabitTask(
+      id: 'a',
+      versions: [schedule()],
+      deletedOn: '2026-11-25',
+    );
+    final deletedDay = DateTime(2026, 11, 25);
+    expect(task.isDeleted, isTrue);
+    expect(task.scheduled(DateTime(2026, 11, 23)), isTrue);
+    expect(task.scheduled(deletedDay), isFalse);
+    expect(task.scheduled(DateTime(2026, 11, 27)), isFalse);
+    expect(task.reminderScheduleAt(deletedDay), isNull);
+    expect(
+      progressFor(
+        deletedDay,
+        [task],
+        [const HabitEntry('a', '2026-11-25', 'completed')],
+      ).done,
+      1,
+    );
+  });
+
   test(
     'archiving suppresses reminders even for an occurrence still pending today',
     () {
