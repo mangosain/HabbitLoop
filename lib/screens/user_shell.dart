@@ -85,6 +85,21 @@ class _UserShellState extends State<UserShell> {
       child: Column(
         children: [
           if (index == 0) const BrandHeader(),
+          ValueListenableBuilder<String?>(
+            valueListenable: HabitBackend.instance.taskSyncIssue,
+            builder: (context, issue, _) => issue == null
+                ? const SizedBox.shrink()
+                : MaterialBanner(
+                    content: Text(issue),
+                    actions: [
+                      TextButton(
+                        onPressed: () => HabitBackend.instance
+                            .discardBlockedTaskChange(widget.uid),
+                        child: const Text('Discard change'),
+                      ),
+                    ],
+                  ),
+          ),
           Expanded(
             child: MotionSwitcher(
               child: KeyedSubtree(

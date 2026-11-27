@@ -154,8 +154,7 @@ class _TaskEditorState extends State<TaskEditor> {
           oneTimeDate == dayKey(DateTime.now());
       await HabitBackend.instance.saveTask(
         targetUid: widget.uid,
-        taskId: widget.task?.id,
-        expectedVersionCount: widget.task?.versions.length,
+        task: widget.task,
         iconId: iconId,
         definition: schedule,
       );

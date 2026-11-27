@@ -46,7 +46,9 @@ service cloud.firestore {
         && v.keys().hasOnly(['effectiveFrom', 'name', 'description', 'category',
           'kind', 'startDate', 'endDate', 'oneTimeDate', 'weekdays',
           'timeMinutes', 'remindersEnabled', 'leadMinutes', 'repeatMinutes',
-          'paused', 'archived'])
+          'paused', 'archived', 'syncId', 'editedAt'])
+        && (!('syncId' in v) || (v.syncId is string && v.syncId.matches('^[A-Za-z0-9]{20}$')))
+        && (!('editedAt' in v) || (v.editedAt is int && v.editedAt >= 0))
         && dateString(v.effectiveFrom)
         && v.name is string && v.name.size() > 0 && v.name.size() <= 100
         && v.description is string && v.description.size() <= 500
@@ -98,7 +100,8 @@ service cloud.firestore {
         && d.createdAt == request.time && d.updatedAt == request.time
         && d.versions is list && d.versions.size() == 1
         && validVersion(d.versions[0])
-        && d.versions[0].effectiveFrom >= utcDay(request.time);
+        && (d.versions[0].effectiveFrom >= utcDay(request.time)
+          || d.versions[0].get('syncId', null) != null);
     }
     function keepsRecordedOneTimeTask(uid, taskId, previous, next) {
       return previous.kind != 'oneTime' || next.kind != 'oneTime'

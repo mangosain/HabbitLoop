@@ -26,6 +26,7 @@ bool canMoveOneTimeTaskToToday(
 
 class HabitSchedule {
   final String effectiveFrom;
+  final String? syncId;
   final String name;
   final String description;
   final String category;
@@ -43,6 +44,7 @@ class HabitSchedule {
 
   const HabitSchedule({
     required this.effectiveFrom,
+    this.syncId,
     required this.name,
     required this.description,
     required this.category,
@@ -61,6 +63,7 @@ class HabitSchedule {
 
   factory HabitSchedule.fromMap(Map<String, dynamic> m) => HabitSchedule(
     effectiveFrom: m['effectiveFrom'] as String? ?? '1970-01-01',
+    syncId: m['syncId'] as String?,
     name: m['name'] as String? ?? 'Untitled task',
     description: m['description'] as String? ?? '',
     category: m['category'] as String? ?? 'Personal',
