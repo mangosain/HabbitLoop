@@ -399,7 +399,7 @@ class _DaySheetContent extends StatelessWidget {
         final key = dayKey(date);
         final recorded = {
           for (final entry in entries)
-            if (entry.date == key) entry.taskId,
+            if (entry.date == key && entry.status != 'pending') entry.taskId,
         };
         final current = tasks.where((task) {
           return task.occurrenceOn(
@@ -467,9 +467,13 @@ class _DaySheetContent extends StatelessWidget {
                           const Divider(height: 1),
                       itemBuilder: (context, i) {
                         final task = current[i];
-                        final version = task.on(date)!;
+                        final version = task.occurrenceOn(
+                          date,
+                          dateKey: key,
+                          recorded: recorded.contains(task.id),
+                        )!;
                         final status = statusFor(task.id, date, entries);
-                        return ListTile(
+                        final row = ListTile(
                           contentPadding: const EdgeInsets.symmetric(
                             vertical: 3,
                           ),
@@ -501,7 +505,12 @@ class _DaySheetContent extends StatelessWidget {
                               color: AppPalette.muted,
                             ),
                           ),
-                          trailing: editable && !task.isDeleted
+                          trailing:
+                              editable &&
+                                  !dateOnly(date)
+                                      .isAfter(dateOnly(DateTime.now())) &&
+                                  !task.isDeleted &&
+                                  task.scheduled(date)
                               ? PopupMenuButton<String>(
                                   tooltip: 'Change task status',
                                   onSelected: (value) async {
@@ -541,6 +550,11 @@ class _DaySheetContent extends StatelessWidget {
                                       ? AppPalette.green
                                       : AppPalette.muted,
                                 ),
+                        );
+                        return TaskCompletionFade(
+                          key: ValueKey(task.id),
+                          completed: status == 'completed',
+                          child: row,
                         );
                       },
                     ),

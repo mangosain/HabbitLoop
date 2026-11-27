@@ -100,17 +100,16 @@ service cloud.firestore {
         && validVersion(d.versions[0])
         && d.versions[0].effectiveFrom >= utcDay(request.time);
     }
-    function canMovePendingOneTimeToToday(uid, taskId, previous, next) {
-      let today = utcDay(request.time);
-      let entryId = taskId + '_' + previous.oneTimeDate;
+    function keepsRecordedOneTimeTask(uid, taskId, previous, next) {
+      return previous.kind != 'oneTime' || next.kind != 'oneTime'
+        || !dateString(previous.oneTimeDate)
+        || previous.oneTimeDate >= next.effectiveFrom
+        || next.oneTimeDate != next.effectiveFrom
+        || pendingOccurrence(uid, taskId + '_' + previous.oneTimeDate);
+    }
+    function pendingOccurrence(uid, entryId) {
       let entry = /databases/$(database)/documents/users/$(uid)/occurrences/$(entryId);
-      return self(uid)
-        && previous.kind == 'oneTime' && dateString(previous.oneTimeDate)
-        && previous.oneTimeDate < today && previous.effectiveFrom <= today
-        && next.kind == 'oneTime' && next.effectiveFrom == today
-        && next.oneTimeDate == today && next.startDate == today
-        && next.paused == false && next.archived == false
-        && (!exists(entry) || get(entry).data.status == 'pending');
+      return !exists(entry) || get(entry).data.status == 'pending';
     }
     function validTaskUpdate(uid, taskId) {
       let d = request.resource.data;
@@ -123,10 +122,11 @@ service cloud.firestore {
         && old is list && next is list && next.size() == old.size() + 1
         && next.size() <= 350
         && next == old.concat([next[old.size()]])
-        && validVersion(next[old.size()])
-        && (next[old.size()].effectiveFrom > utcDay(request.time)
-          || (old.size() > 0
-            && canMovePendingOneTimeToToday(uid, taskId, old[old.size() - 1], next[old.size()])));
+        // A device's local date can be one day behind UTC.
+        && next[old.size()].effectiveFrom >= utcDay(request.time - duration.value(12, 'h'))
+        && (old.size() == 0
+          || keepsRecordedOneTimeTask(uid, taskId, old[old.size() - 1], next[old.size()]))
+        && validVersion(next[old.size()]);
     }
 
     match /users/{uid} {

@@ -21,10 +21,7 @@ bool canMoveOneTimeTaskToToday(
       oldDate != null &&
       oldDate.compareTo(today) < 0 &&
       previous.effectiveFrom.compareTo(today) <= 0 &&
-      updated.oneTimeDate == today &&
-      !updated.archived &&
-      !updated.paused &&
-      today.compareTo(dayKey(now.toUtc())) >= 0;
+      updated.oneTimeDate == today;
 }
 
 class HabitSchedule {
@@ -125,11 +122,13 @@ class HabitTask {
   final List<HabitSchedule> versions;
   final String? iconId;
   final String? deletedOn;
+  final DateTime? createdAt;
   const HabitTask({
     required this.id,
     required this.versions,
     this.iconId,
     this.deletedOn,
+    this.createdAt,
   });
   factory HabitTask.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
     final maps = (d.data()?['versions'] as List<dynamic>? ?? [])
@@ -142,6 +141,7 @@ class HabitTask {
       versions: versions,
       iconId: d.data()?['iconId'] as String?,
       deletedOn: d.data()?['deletedOn'] as String?,
+      createdAt: (d.data()?['createdAt'] as Timestamp?)?.toDate(),
     );
   }
   HabitSchedule? on(DateTime day) => _onDate(dayKey(day));
@@ -165,10 +165,15 @@ class HabitTask {
         (key.compareTo(cutoff) > 0 || (key == cutoff && !recorded))) {
       return null;
     }
-    final version = _onDate(key);
-    return version != null && version._occursOn(key, day.weekday)
-        ? version
-        : null;
+    for (var i = versions.length - 1; i >= 0; i--) {
+      final version = versions[i];
+      if (version.effectiveFrom.compareTo(key) > 0) continue;
+      if (version._occursOn(key, day.weekday)) return version;
+      // An immediate edit may remove today's occurrence. A saved completion
+      // or skip still belongs to the schedule that originally included it.
+      if (!recorded) break;
+    }
+    return null;
   }
 
   bool scheduled(DateTime day) => occurrenceOn(day) != null;
@@ -192,6 +197,31 @@ class HabitTask {
   }
 
   HabitSchedule get latest => versions.last;
+
+  /// Date shown for the saved schedule in My Tasks. Historical views continue
+  /// to resolve the version that was effective on each occurrence date.
+  String? taskListOccurrenceDate(DateTime now) {
+    final schedule = latest;
+    if (isDeleted || schedule.paused || schedule.archived) return null;
+    if (schedule.kind == 'oneTime') return schedule.oneTimeDate;
+
+    var first = dayKey(now);
+    if (schedule.effectiveFrom.compareTo(first) > 0) {
+      first = schedule.effectiveFrom;
+    }
+    if (schedule.startDate.compareTo(first) > 0) first = schedule.startDate;
+    final start = fromDay(first);
+    for (var offset = 0; offset < 7; offset++) {
+      final date = DateTime(start.year, start.month, start.day + offset);
+      final key = dayKey(date);
+      if (schedule.endDate != null && key.compareTo(schedule.endDate!) > 0) {
+        return null;
+      }
+      if (schedule.weekdays.contains(date.weekday)) return key;
+    }
+    return null;
+  }
+
   bool get isArchived => latest.archived;
 
   bool get isDeleted => deletedOn != null;
@@ -202,6 +232,41 @@ class HabitTask {
     if (schedule == null || schedule.paused || schedule.archived) return null;
     return schedule;
   }
+}
+
+typedef TaskListItem = ({HabitTask task, String? occurrenceDate});
+
+List<TaskListItem> orderTasksForList(Iterable<HabitTask> tasks, DateTime now) {
+  final items = [
+    for (final task in tasks)
+      (task: task, occurrenceDate: task.taskListOccurrenceDate(now)),
+  ];
+  return items..sort((a, b) {
+    final aTime = a.task.latest.timeMinutes;
+    final bTime = b.task.latest.timeMinutes;
+    if (aTime == null && bTime != null) return -1;
+    if (aTime != null && bTime == null) return 1;
+    if (aTime != null && bTime != null) {
+      final aDate = a.occurrenceDate;
+      final bDate = b.occurrenceDate;
+      if (aDate == null && bDate != null) return 1;
+      if (aDate != null && bDate == null) return -1;
+      if (aDate != null && bDate != null) {
+        final dateOrder = aDate.compareTo(bDate);
+        if (dateOrder != 0) return dateOrder;
+        final timeOrder = aTime.compareTo(bTime);
+        if (timeOrder != 0) return timeOrder;
+      }
+    }
+    final aCreated =
+        a.task.createdAt ??
+        DateTime.parse(a.task.versions.first.effectiveFrom).toUtc();
+    final bCreated =
+        b.task.createdAt ??
+        DateTime.parse(b.task.versions.first.effectiveFrom).toUtc();
+    final creationOrder = aCreated.compareTo(bCreated);
+    return creationOrder != 0 ? creationOrder : a.task.id.compareTo(b.task.id);
+  });
 }
 
 class HabitEntry {
@@ -243,7 +308,9 @@ DayProgress progressFor(
     if (task.occurrenceOn(
           date,
           dateKey: key,
-          recorded: statusById.containsKey(task.id),
+          recorded:
+              statusById[task.id] == 'completed' ||
+              statusById[task.id] == 'skipped',
         ) ==
         null) {
       continue;

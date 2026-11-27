@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 import '../models/habit.dart';
 
@@ -78,26 +79,20 @@ class HabitBackend {
   Future<void> logout() => FirebaseAuth.instance.signOut();
 
   /// Spark-compatible: client transaction + server-enforced append-only history.
-  /// Edits normally apply tomorrow. A missed one-time task can move to today. Admins cannot
-  /// change completion history. Firestore rules are the security boundary.
+  /// Edits apply on the current local day without rewriting earlier versions.
   Future<void> saveTask({
     required String targetUid,
     required HabitSchedule definition,
     String? taskId,
+    int? expectedVersionCount,
     String? iconId,
   }) async {
     final now = DateTime.now();
     final today = dayKey(now);
-    final tomorrow = dayKey(DateTime(now.year, now.month, now.day + 1));
-    // Firestore also enforces a UTC lower bound. Match it on the client.
-    final utc = now.toUtc();
-    final utcToday = dayKey(utc);
-    final utcTomorrow = dayKey(DateTime.utc(utc.year, utc.month, utc.day + 1));
-    final localEffective = taskId == null ? today : tomorrow;
-    final utcEffective = taskId == null ? utcToday : utcTomorrow;
-    final effective = localEffective.compareTo(utcEffective) >= 0
-        ? localEffective
-        : utcEffective;
+    final utcToday = dayKey(now.toUtc());
+    final effective = taskId == null && today.compareTo(utcToday) < 0
+        ? utcToday
+        : today;
     final raw = definition.toDefinition();
     final selectedDate = definition.oneTimeDate;
     if (taskId == null &&
@@ -114,7 +109,11 @@ class HabitBackend {
         }
         transaction.set(ref, {
           'versions': [
-            {...raw, 'effectiveFrom': effective},
+            {
+              ...raw,
+              if (definition.kind == 'oneTime') 'startDate': selectedDate,
+              'effectiveFrom': effective,
+            },
           ],
           if (iconId != null) 'iconId': iconId,
           'ownerUid': targetUid,
@@ -131,10 +130,10 @@ class HabitBackend {
         final existing = List<dynamic>.from(
           snap.data()?['versions'] as List? ?? [],
         );
-        if (existing.isEmpty || existing.length >= 350) {
-          throw StateError(
-            'Task has no schedule or has reached its version limit.',
-          );
+        if (existing.isEmpty) throw StateError('Task has no schedule.');
+        if (expectedVersionCount != null &&
+            existing.length != expectedVersionCount) {
+          throw StateError('This task changed elsewhere. Reopen it to edit.');
         }
         final previous = HabitSchedule.fromMap(
           Map<String, dynamic>.from(existing.last as Map),
@@ -146,16 +145,23 @@ class HabitBackend {
             dateChanged && canMoveOneTimeTaskToToday(previous, definition, now);
         if (definition.kind == 'oneTime' &&
             (selectedDate == null ||
-                (dateChanged &&
-                    !moveToToday &&
-                    selectedDate.compareTo(effective) < 0))) {
-          if (selectedDate == today) {
-            throw StateError(
-              'Only a missed one-time task can move to today. '
-              'For other schedule changes, choose $effective or later.',
-            );
-          }
+                (dateChanged && selectedDate.compareTo(effective) < 0))) {
           throw StateError('Choose a one-time date on or after $effective.');
+        }
+        final next = {...raw};
+        if (dateChanged && definition.kind == 'oneTime') {
+          // A recurring start date is hidden after switching to one-time.
+          next['startDate'] = selectedDate;
+        }
+        final previousDefinition = previous.toDefinition();
+        final oldWeekdays = previousDefinition.remove('weekdays') as List<int>;
+        final newWeekdays = next.remove('weekdays') as List<int>;
+        if (mapEquals(previousDefinition, next) &&
+            listEquals(oldWeekdays, newWeekdays)) {
+          return;
+        }
+        if (existing.length >= 350) {
+          throw StateError('This task has reached its version limit.');
         }
         if (moveToToday) {
           final occurrence = await transaction.get(
@@ -170,11 +176,7 @@ class HabitBackend {
         transaction.update(ref, {
           'versions': [
             ...existing,
-            {
-              ...raw,
-              if (moveToToday) 'startDate': today,
-              'effectiveFrom': moveToToday ? today : effective,
-            },
+            {...next, 'weekdays': newWeekdays, 'effectiveFrom': effective},
           ],
           'updatedBy': uid,
           'updatedAt': FieldValue.serverTimestamp(),
@@ -226,8 +228,12 @@ class HabitBackend {
   }) async {
     if (targetUid != uid)
       throw StateError('Admins cannot edit task completion records.');
-    if (task.isDeleted || !task.scheduled(date))
+    if (dayKey(date).compareTo(dayKey(DateTime.now())) > 0) {
+      throw StateError('You can record an occurrence on or after its date.');
+    }
+    if (task.isDeleted || !task.scheduled(date)) {
       throw StateError('This task is not scheduled for that day.');
+    }
     final key = dayKey(date);
     final userDoc = db.collection('users').doc(uid);
     final batch = db.batch();

@@ -8,6 +8,7 @@ HabitSchedule schedule({
   bool archived = false,
   String? oneTimeDate,
   List<int> weekdays = const [1, 3, 5],
+  int? timeMinutes = 420,
 }) => HabitSchedule(
   effectiveFrom: effective,
   name: name,
@@ -17,7 +18,7 @@ HabitSchedule schedule({
   oneTimeDate: oneTimeDate,
   startDate: '2026-11-20',
   weekdays: weekdays,
-  timeMinutes: 420,
+  timeMinutes: timeMinutes,
   remindersEnabled: true,
   leadMinutes: 2,
   repeatMinutes: 2,
@@ -85,6 +86,88 @@ void main() {
 
     final recurring = HabitTask(id: 'recurring', versions: [schedule()]);
     expect(recurring.completionDate(DateTime(2026, 11, 26)), isNull);
+  });
+
+  test(
+    'same-day edits change the schedule and retain recorded occurrences',
+    () {
+      final day = DateTime(2026, 11, 25);
+      final original = schedule(timeMinutes: 420);
+      final changed = HabitTask(
+        id: 'a',
+        versions: [
+          original,
+          schedule(effective: '2026-11-25', timeMinutes: 600),
+        ],
+      );
+      expect(changed.occurrenceOn(day)?.timeMinutes, 600);
+      expect(changed.occurrenceOn(DateTime(2026, 11, 23))?.timeMinutes, 420);
+      final paused = HabitTask(
+        id: 'a',
+        versions: [
+          original,
+          schedule(effective: '2026-11-25', paused: true),
+        ],
+      );
+      expect(paused.occurrenceOn(day), isNull);
+      expect(paused.occurrenceOn(day, recorded: true), original);
+      expect(
+        progressFor(
+          day,
+          [paused],
+          const [HabitEntry('a', '2026-11-25', 'skipped')],
+        ).skipped,
+        1,
+      );
+    },
+  );
+
+  test('task list sorts untimed by creation, then timed by date and time', () {
+    final now = DateTime(2026, 11, 25);
+    final older = HabitTask(
+      id: 'z-older',
+      createdAt: DateTime.utc(2026, 11, 20, 10),
+      versions: [schedule(timeMinutes: null, oneTimeDate: '2026-11-30')],
+    );
+    final newer = HabitTask(
+      id: 'a-newer',
+      createdAt: DateTime.utc(2026, 11, 20, 11),
+      versions: [schedule(timeMinutes: null)],
+    );
+    final revised = HabitTask(
+      id: 'revised',
+      versions: [
+        schedule(timeMinutes: 300),
+        schedule(effective: '2026-11-26', timeMinutes: 600),
+      ],
+    );
+    final sameDayEarlier = HabitTask(
+      id: 'earlier',
+      versions: [schedule(timeMinutes: 500, oneTimeDate: '2026-11-27')],
+    );
+    final laterDay = HabitTask(
+      id: 'later',
+      versions: [schedule(timeMinutes: 180, oneTimeDate: '2026-11-28')],
+    );
+    final paused = HabitTask(id: 'paused', versions: [schedule(paused: true)]);
+    final ordered = orderTasksForList([
+      laterDay,
+      newer,
+      revised,
+      paused,
+      older,
+      sameDayEarlier,
+    ], now);
+    expect(ordered.map((row) => row.task.id), [
+      'z-older',
+      'a-newer',
+      'earlier',
+      'revised',
+      'later',
+      'paused',
+    ]);
+    expect(revised.taskListOccurrenceDate(now), '2026-11-27');
+    expect(revised.occurrenceOn(now)?.timeMinutes, 300);
   });
 
   test('deletion keeps past and recorded same-day progress only', () {

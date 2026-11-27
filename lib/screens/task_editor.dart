@@ -94,7 +94,7 @@ class _TaskEditorState extends State<TaskEditor> {
       firstDate: first,
       lastDate: last,
     );
-    if (date == null) return;
+    if (!mounted || date == null) return;
     setState(() {
       if (which == 'oneTime') {
         oneTimeDate = dayKey(date);
@@ -112,7 +112,7 @@ class _TaskEditorState extends State<TaskEditor> {
       minute: (timeMinutes ?? 7 * 60) % 60,
     );
     final chosen = await showTimePicker(context: context, initialTime: initial);
-    if (chosen == null) return;
+    if (!mounted || chosen == null) return;
     setState(() => timeMinutes = chosen.hour * 60 + chosen.minute);
   }
 
@@ -122,7 +122,9 @@ class _TaskEditorState extends State<TaskEditor> {
       toast(context, 'Select at least one weekday.');
       return;
     }
-    if (endDate != null && endDate!.compareTo(startDate) < 0) {
+    if (kind == 'recurring' &&
+        endDate != null &&
+        endDate!.compareTo(startDate) < 0) {
       toast(context, 'End date must be on or after the start date.');
       return;
     }
@@ -153,6 +155,7 @@ class _TaskEditorState extends State<TaskEditor> {
       await HabitBackend.instance.saveTask(
         targetUid: widget.uid,
         taskId: widget.task?.id,
+        expectedVersionCount: widget.task?.versions.length,
         iconId: iconId,
         definition: schedule,
       );
@@ -164,7 +167,7 @@ class _TaskEditorState extends State<TaskEditor> {
                   ? 'Task archived.'
                   : movedToToday
                   ? 'Task moved to today.'
-                  : 'Changes saved for future occurrences.')
+                  : 'Changes saved.')
             : 'Habit created!',
       );
       Navigator.of(context).pop();
@@ -594,7 +597,7 @@ class _TaskEditorState extends State<TaskEditor> {
               title: const Text('Pause task'),
               value: paused,
               subtitle: const Text(
-                'Stops scheduling new occurrences from tomorrow.',
+                'Stops scheduling new occurrences and reminders.',
               ),
               onChanged: (v) => setState(() => paused = v),
             ),
@@ -608,7 +611,7 @@ class _TaskEditorState extends State<TaskEditor> {
             ),
             const SizedBox(height: 10),
             const Text(
-              'Schedule changes usually start tomorrow. Pending one-time tasks can move to today.',
+              'Schedule changes apply immediately. Completed and skipped records are kept.',
               style: TextStyle(fontSize: 11, color: AppPalette.muted),
             ),
           ],

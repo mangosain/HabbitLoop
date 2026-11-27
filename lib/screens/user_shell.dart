@@ -363,7 +363,7 @@ class DailyTaskTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = task.on(date)!;
     final status = statusFor(task.id, date, entries);
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.only(bottom: 7),
       child: SoftCard(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -459,6 +459,7 @@ class DailyTaskTile extends StatelessWidget {
         ),
       ),
     );
+    return TaskCompletionFade(completed: status == 'completed', child: row);
   }
 }
 
@@ -495,15 +496,17 @@ class _TaskListPageState extends State<TaskListPage> {
       final statuses = {
         for (final entry in entries) (entry.taskId, entry.date): entry.status,
       };
-      final active = tasks.where((t) {
+      final matching = tasks.where((t) {
         if (t.isDeleted) return false;
-        final s = t.on(day) ?? t.latest;
+        final s = t.latest;
         if (t.isArchived) return filter == 'Archived';
         if (filter == 'Archived') return false;
         if (filter == 'Recurring') return s.kind == 'recurring';
         if (filter == 'One-time') return s.kind == 'oneTime';
         return true;
-      }).toList()..sort((a, b) => a.latest.name.compareTo(b.latest.name));
+      });
+      final active = orderTasksForList(matching, day);
+      final todayKey = dayKey(day);
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: CustomScrollView(
@@ -577,15 +580,21 @@ class _TaskListPageState extends State<TaskListPage> {
               sliver: SliverList.builder(
                 itemCount: active.length,
                 itemBuilder: (context, index) {
-                  final task = active[index];
-                  final current = task.on(day);
-                  final s = current ?? task.latest;
+                  final (task: task, occurrenceDate: occurrenceDate) =
+                      active[index];
+                  final s = task.latest;
+                  final dateLabel = occurrenceDate == null
+                      ? ''
+                      : ' · ${DateFormat('EEE, d MMM').format(fromDay(occurrenceDate))}';
+                  final pendingEdit =
+                      task.on(day) != null &&
+                      s.effectiveFrom.compareTo(todayKey) > 0;
                   final completionDate = task.completionDate(day);
                   final status = completionDate == null
                       ? 'pending'
                       : statuses[(task.id, dayKey(completionDate))] ??
                             'pending';
-                  return Padding(
+                  final row = Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: SoftCard(
                       padding: const EdgeInsets.symmetric(
@@ -625,7 +634,7 @@ class _TaskListPageState extends State<TaskListPage> {
                                   ),
                                 ),
                                 Text(
-                                  '${s.kind == 'recurring' ? 'Recurring' : 'One-time'} · ${s.timeLabel}'
+                                  '${s.kind == 'recurring' ? 'Recurring' : 'One-time'}$dateLabel · ${s.timeLabel}'
                                   '${s.paused ? ' · Paused' : ''}${task.isArchived ? ' · Archived' : ''}',
                                   maxLines: 2,
                                   style: const TextStyle(
@@ -633,6 +642,14 @@ class _TaskListPageState extends State<TaskListPage> {
                                     color: AppPalette.muted,
                                   ),
                                 ),
+                                if (pendingEdit && !task.isArchived)
+                                  Text(
+                                    'Changes apply ${DateFormat('d MMM').format(fromDay(s.effectiveFrom))}',
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: AppPalette.muted,
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -679,6 +696,11 @@ class _TaskListPageState extends State<TaskListPage> {
                         ],
                       ),
                     ),
+                  );
+                  return TaskCompletionFade(
+                    key: ValueKey(task.id),
+                    completed: status == 'completed',
+                    child: row,
                   );
                 },
               ),

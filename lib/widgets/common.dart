@@ -4,6 +4,26 @@ import 'package:material_ui/material_ui.dart';
 
 import '../core/palette.dart';
 
+class TaskCompletionFade extends StatelessWidget {
+  const TaskCompletionFade({
+    super.key,
+    required this.completed,
+    required this.child,
+  });
+
+  final bool completed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => AnimatedOpacity(
+    opacity: completed ? 0.62 : 1,
+    duration: MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 180),
+    child: child,
+  );
+}
+
 class SoftCard extends StatelessWidget {
   const SoftCard({
     super.key,
